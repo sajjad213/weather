@@ -7,30 +7,73 @@
 
 import XCTest
 @testable import Weather
+import Combine
 
 final class WeatherTests: XCTestCase {
+    private var sut: WeatherViewModel!
+    private var weatherApiMock: WeatherAPIProtocol!
+    private var cancellables = Set<AnyCancellable>()
 
     override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
+        //
     }
 
     override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
+        sut = nil
+        cancellables.forEach { $0.cancel() }
+        cancellables = []
     }
 
-    func testExample() throws {
-        // This is an example of a functional test case.
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
-        // Any test you write for XCTest can be annotated as throws and async.
-        // Mark your test throws to produce an unexpected failure when your test encounters an uncaught error.
-        // Mark your test async to allow awaiting for asynchronous code to complete. Check the results with assertions afterwards.
+    func testSearchLocation() throws {
+        weatherApiMock = WeatherApiMock()
+        sut = WeatherViewModel(weatherAPI: weatherApiMock)
+        
+        let resultExpectation = expectation(description: "should return result for entered query!")
+        let showingSearchResultsExpectation = expectation(description: "should show search result!")
+        let searchingExpectation = expectation(description: "should show searching indicator!")
+        sut.$isShowingSearchResults
+            .sink { value in
+                guard value else { return }
+                showingSearchResultsExpectation.fulfill()
+            }
+            .store(in: &cancellables)
+        sut.$isSearching
+            .sink { value in
+                guard value else { return }
+                searchingExpectation.fulfill()
+            }
+            .store(in: &cancellables)
+        sut.$searchResults
+            .sink { [unowned self] places in
+                guard places.isEmpty else { return }
+                XCTAssertFalse(self.sut.isShowingSearchResults)
+                XCTAssertFalse(self.sut.isSearching)
+                XCTAssertNil(self.sut.error)
+                resultExpectation.fulfill()
+            }
+            .store(in: &cancellables)
+        
+        sut.searchText = "Tehran"
+        wait(for: [resultExpectation, showingSearchResultsExpectation, searchingExpectation], timeout: 3)
     }
+}
 
-    func testPerformanceExample() throws {
-        // This is an example of a performance test case.
-        self.measure {
-            // Put the code you want to measure the time of here.
-        }
+struct WeatherApiMock: WeatherAPIProtocol {
+    func fetchWeatherData(params: WeatherRequestParams) async throws -> WeatherResponse {
+        WeatherResponse.stub()
     }
+    
+    func fetchForecacstData(params: WeatherRequestParams) async throws -> ForecastResponse {
+        ForecastResponse.stub()
+    }
+}
 
+struct WeatherApiWithErrorMock: WeatherAPIProtocol {
+    func fetchWeatherData(params: WeatherRequestParams) async throws -> WeatherResponse {
+        throw APIError.invalidReponse
+    }
+    
+    func fetchForecacstData(params: WeatherRequestParams) async throws -> ForecastResponse {
+        throw APIError.invalidData
+    }
 }
